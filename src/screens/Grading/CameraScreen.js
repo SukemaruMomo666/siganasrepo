@@ -1,22 +1,54 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, StatusBar, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, StatusBar, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { Camera, useCameraDevice, useFrameProcessor } from 'react-native-vision-camera';
+import { useTensorflowModel } from 'react-native-fast-tflite';
+import { useRunOnJS } from 'react-native-worklets-core';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../theme/Theme';
 import { PrimaryButton, TextLinkButton } from '../../components/SharedComponents';
 import { useSession } from '../../store/SessionContext';
 
 export default function CameraScreen({ navigation }) {
-  const [permission, requestPermission] = useCameraPermissions();
+  const device = useCameraDevice('back');
+  const [hasPermission, setHasPermission] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [showTips, setShowTips] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  const [currentDetection, setCurrentDetection] = useState(null);
+  const [currentDetection, setCurrentDetection] = useState(null);
   const { session, incrementScanCount } = useSession();
 
-  if (!permission) return <View style={{ flex: 1, backgroundColor: "#000" }} />;
+  // Native TFLite Model Loading
+  const tfModel = useTensorflowModel(require('../../../assets/models/yolo.tflite'));
+  const model = tfModel.state === 'loaded' ? tfModel.model : undefined;
 
-  if (!permission.granted) {
+  useEffect(() => {
+    (async () => {
+      const status = await Camera.requestCameraPermission();
+      setHasPermission(status === 'granted');
+    })();
+  }, []);
+
+  // Bridge to update React state from Worklet
+  const setDetectionFromWorklet = useRunOnJS((detection) => {
+    setCurrentDetection(detection);
+  }, []);
+
+  // Frame Processor (Berjalan 60 FPS di background thread C++)
+  const frameProcessor = useFrameProcessor((frame) => {
+    'worklet';
+    if (model == null) return;
+    
+    // INFO: Kode untuk memproses frame video menjadi ArrayBuffer dan dimasukkan ke TFLite.
+    // Karena YOLOv11 butuh preprocessing spesifik (resize, normalize), logika tensornya
+    // akan ditaruh di sini nanti saat model asli nanas Anda sudah di-training.
+    
+    // const outputs = model.runSync([frame.toArrayBuffer()]);
+    // setDetectionFromWorklet(parsedOutput);
+  }, [model]);
+
+  if (!hasPermission) {
     return (
       <SafeAreaView style={[styles.container, { justifyContent: "center", padding: 30 }]}>
         <Ionicons name="camera-outline" size={56} color={COLORS.primaryGreen} style={{ alignSelf: "center", marginBottom: 20 }} />
@@ -26,13 +58,18 @@ export default function CameraScreen({ navigation }) {
         <Text style={{ textAlign: "center", marginBottom: 25, fontSize: 15, color: COLORS.textGray }}>
           SiGanas membutuhkan kamera untuk memindai dan menilai mutu buah nanas secara otomatis.
         </Text>
-        <PrimaryButton title="Beri Izin Kamera" onPress={requestPermission} icon="camera" />
+        <PrimaryButton title="Beri Izin Kamera" onPress={async () => {
+          const status = await Camera.requestCameraPermission();
+          setHasPermission(status === 'granted');
+        }} icon="camera" />
         <TextLinkButton title="Kembali" onPress={() => navigation.goBack()} color={COLORS.textGray} />
       </SafeAreaView>
     );
   }
 
-  const handleCapture = () => {
+  if (device == null) return <View style={{ flex: 1, backgroundColor: "#000" }} />;
+
+  const handleCapture = async () => {
     if (session?.targetAmount > 0 && session.scanCount >= session.targetAmount) {
       Alert.alert(
         "Sesi Selesai",
@@ -42,30 +79,37 @@ export default function CameraScreen({ navigation }) {
       return;
     }
 
+    if (tfModel.state !== 'loaded') {
+      Alert.alert("Tunggu Sebentar", "Model YOLO Native sedang dimuat ke memori...");
+      return;
+    }
+
     setIsScanning(true);
-    // Simulasi proses analisis AI (di produksi: panggil model/endpoint grading)
+    // Simulasi respons saat dipencet (karena frame processor worklet belum aktif penuh)
     setTimeout(() => {
       setIsScanning(false);
       incrementScanCount();
-      
-      const grades = ["A", "B", "C", "D"];
-      const randomGrade = grades[Math.floor(Math.random() * grades.length)];
-      
       navigation.navigate("Result", {
-        grade: randomGrade,
-        confidence: Math.floor(Math.random() * (99 - 80 + 1) + 80),
-        diameter: parseFloat((Math.random() * (15 - 9) + 9).toFixed(1)),
-        height: parseFloat((Math.random() * (22 - 12) + 12).toFixed(1)),
-        weight: parseFloat((Math.random() * (2.5 - 0.8) + 0.8).toFixed(1)),
-        notes: ["Warna kulit " + (Math.random() > 0.5 ? "merata" : "kurang merata"), "Kondisi fisik buah " + (randomGrade === 'A' || randomGrade === 'B' ? "baik" : "cukup baik")],
+        grade: "Supermarket",
+        confidence: 95,
+        diameter: 12.5,
+        height: 18.2,
+        weight: 1.5,
+        notes: ["Deteksi Native (Mock)"],
       });
-    }, 1600);
+    }, 500);
   };
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       <StatusBar barStyle="light-content" />
-      <CameraView style={StyleSheet.absoluteFillObject} facing="back" enableTorch={torchOn} />
+      <Camera 
+        style={StyleSheet.absoluteFillObject} 
+        device={device} 
+        isActive={true} 
+        torch={torchOn ? 'on' : 'off'}
+        frameProcessor={frameProcessor}
+      />
       
       <SafeAreaView style={styles.camHeader}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.camIconBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
@@ -97,6 +141,21 @@ export default function CameraScreen({ navigation }) {
         <View style={[styles.camCorner, styles.cornerTR]} />
         <View style={[styles.camCorner, styles.cornerBL]} />
         <View style={[styles.camCorner, styles.cornerBR]} />
+        
+        {currentDetection && model != null && (
+          <View style={[styles.yoloBox, {
+            top: `${currentDetection.bbox.y * 100}%`,
+            left: `${currentDetection.bbox.x * 100}%`,
+            width: `${currentDetection.bbox.w * 100}%`,
+            height: `${currentDetection.bbox.h * 100}%`
+          }]}>
+            <View style={styles.yoloLabel}>
+              <Text style={styles.yoloLabelText}>
+                {currentDetection.class} - {currentDetection.grade} ({currentDetection.confidence}%)
+              </Text>
+            </View>
+          </View>
+        )}
       </View>
       <Text style={styles.camGuideText}>Posisikan 1 buah nanas pas di tengah kotak kuning</Text>
 
@@ -115,7 +174,9 @@ export default function CameraScreen({ navigation }) {
           <Ionicons name="bulb-outline" size={16} color={COLORS.primaryYellow} />
           <Text style={styles.tipsToggleText}>{showTips ? "Sembunyikan Tips" : "Lihat Tips Pemindaian"}</Text>
         </TouchableOpacity>
-        <Text style={styles.camVersion}>SIGANAS AI ENGINE V1.0</Text>
+        <Text style={styles.camVersion}>
+          NATIVE ML ENGINE {tfModel.state === 'loaded' ? "ACTIVE" : "(LOADING...)"}
+        </Text>
         <PrimaryButton
           title={
             (session?.targetAmount > 0 && session?.scanCount >= session?.targetAmount) 
@@ -270,5 +331,27 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginBottom: 15,
     letterSpacing: 1
+  },
+  yoloBox: {
+    position: 'absolute',
+    top: '15%',
+    left: '10%',
+    right: '10%',
+    bottom: '15%',
+    borderWidth: 2,
+    borderColor: '#00FF00', 
+  },
+  yoloLabel: {
+    position: 'absolute',
+    top: -24,
+    left: -2,
+    backgroundColor: '#00FF00',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  yoloLabelText: {
+    color: '#000',
+    fontSize: 12,
+    fontWeight: 'bold',
   }
 });

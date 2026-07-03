@@ -7,28 +7,40 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "SiGanas butuh izin kamera untuk mendeteksi mutu nanas."
+      }
     },
     "android": {
+      "package": "com.siganas.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
       [
-        "expo-camera",
+        "react-native-vision-camera",
         {
-          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera",
-          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone",
-          "recordAudioAndroid": true
+          "cameraPermissionText": "SiGanas butuh izin kamera untuk mendeteksi mutu nanas.",
+          "enableMicrophonePermission": false
         }
-      ]
-    ]
+      ],
+      "expo-dev-client"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "fb9f37d0-b4ed-4919-9e0f-737095d14234"
+      }
+    }
   }
 }

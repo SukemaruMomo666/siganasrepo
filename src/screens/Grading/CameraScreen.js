@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, StatusBar, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Camera, useCameraDevice, useFrameProcessor } from 'react-native-vision-camera';
+import { Camera, useCameraDevice, useFrameOutput } from 'react-native-vision-camera';
 import { useTensorflowModel } from 'react-native-fast-tflite';
 import { useRunOnJS } from 'react-native-worklets-core';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,7 +15,6 @@ export default function CameraScreen({ navigation }) {
   const [torchOn, setTorchOn] = useState(false);
   const [showTips, setShowTips] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
-  const [currentDetection, setCurrentDetection] = useState(null);
   const [currentDetection, setCurrentDetection] = useState(null);
   const { session, incrementScanCount } = useSession();
 
@@ -36,17 +35,21 @@ export default function CameraScreen({ navigation }) {
   }, []);
 
   // Frame Processor (Berjalan 60 FPS di background thread C++)
-  const frameProcessor = useFrameProcessor((frame) => {
-    'worklet';
-    if (model == null) return;
-    
-    // INFO: Kode untuk memproses frame video menjadi ArrayBuffer dan dimasukkan ke TFLite.
-    // Karena YOLOv11 butuh preprocessing spesifik (resize, normalize), logika tensornya
-    // akan ditaruh di sini nanti saat model asli nanas Anda sudah di-training.
-    
-    // const outputs = model.runSync([frame.toArrayBuffer()]);
-    // setDetectionFromWorklet(parsedOutput);
-  }, [model]);
+  const frameOutput = useFrameOutput({
+    onFrame: (frame) => {
+      'worklet';
+      if (model == null) return;
+      
+      // INFO: Kode untuk memproses frame video menjadi ArrayBuffer dan dimasukkan ke TFLite.
+      // Karena YOLOv11 butuh preprocessing spesifik (resize, normalize), logika tensornya
+      // akan ditaruh di sini nanti saat model asli nanas Anda sudah di-training.
+      
+      // const outputs = model.runSync([frame.toArrayBuffer()]);
+      // setDetectionFromWorklet(parsedOutput);
+      
+      frame.dispose(); // Wajib di V5
+    }
+  });
 
   if (!hasPermission) {
     return (
@@ -108,7 +111,7 @@ export default function CameraScreen({ navigation }) {
         device={device} 
         isActive={true} 
         torch={torchOn ? 'on' : 'off'}
-        frameProcessor={frameProcessor}
+        outputs={[frameOutput]}
       />
       
       <SafeAreaView style={styles.camHeader}>
@@ -156,8 +159,17 @@ export default function CameraScreen({ navigation }) {
             </View>
           </View>
         )}
+        
+        {!currentDetection && tfModel.state === 'loaded' && (
+          <View style={styles.waitingModelContainer}>
+            <ActivityIndicator size="small" color={COLORS.primaryYellow} />
+            <Text style={styles.waitingModelText}>
+              YOLOv11 Engine Active. Awaiting Pineapple Weights...
+            </Text>
+          </View>
+        )}
       </View>
-      <Text style={styles.camGuideText}>Posisikan 1 buah nanas pas di tengah kotak kuning</Text>
+      <Text style={styles.camGuideText}>Posisikan 1 buah nanas pas di tengah area</Text>
 
       {showTips && (
         <View style={styles.tipsPanel}>
@@ -353,5 +365,21 @@ const styles = StyleSheet.create({
     color: '#000',
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  waitingModelContainer: {
+    position: 'absolute',
+    top: '40%',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 10,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  waitingModelText: {
+    color: COLORS.primaryYellow,
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 8
   }
 });

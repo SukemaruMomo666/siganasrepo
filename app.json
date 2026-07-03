@@ -28,13 +28,6 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      [
-        "react-native-vision-camera",
-        {
-          "cameraPermissionText": "SiGanas butuh izin kamera untuk mendeteksi mutu nanas.",
-          "enableMicrophonePermission": false
-        }
-      ],
       "expo-dev-client"
     ],
     "extra": {
